@@ -16,14 +16,14 @@ def get_requirements(filename, exclude=None):
 
 setup(
     name="securag",
-    version="0.0.0rc0",
+    version="0.0.1",
     description="SECURAG",
     long_description=open("README.md").read(
     ) if os.path.exists("README.md") else "",
     long_description_content_type="text/markdown",
     author="Pavan Reddy",
     author_email="preddy.osdev@gmail.com",
-    url="https://github.com/pavanreddyml/securag",
+    url="https://github.com/pavanreddyml/secuRAG",
     license="MIT",
     packages=find_packages(),
     python_requires=">=3.11",
