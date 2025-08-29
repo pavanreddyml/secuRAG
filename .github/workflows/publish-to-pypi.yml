@@ -10,6 +10,9 @@ jobs:
   deploy:
     name: Build and Publish to PyPI
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python/securag
 
     steps:
       - name: Checkout Repository
@@ -26,9 +29,7 @@ jobs:
           pip install build
 
       - name: Build Package
-        run: |
-          cd python/securag
-          python -m build --outdir ../../dist
+        run: python -m build --outdir ../../dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
