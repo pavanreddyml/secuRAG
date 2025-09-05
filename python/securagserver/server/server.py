@@ -4,10 +4,12 @@ import json
 import uuid
 import time
 import logging
+import traceback
 from datetime import datetime
 from pathlib import Path
 
 from securag.executor import SecuRAGExecutor
+from securag.exceptions import FlaggedInputError, FlaggedOutputError
 from modules.executor import executor
 from modules.ai_response import ai_response, AIResponse
 
@@ -383,7 +385,18 @@ class SecuRAGServer:
                 if write_log and self.SECURAG_SERVER_WRITE_LOGS and message_id:
                     self._insert_audit(message_id=message_id, content=audit_logs)
 
-                response = jsonify({"detail": "Success", "transformed_content": transformed_content, "audit_logs": audit_logs})
+                flagged_response = None
+                flagged = any(i.get_flag() for i in self.executor.input_pipes)
+
+                response = jsonify({"detail": "Success", "flagged": flagged, "transformed_content": transformed_content, "audit_logs": audit_logs})
+                return make_response(response, 200)
+            except FlaggedInputError:
+                audit_logs = self.executor.get_logs()
+                if write_log and self.SECURAG_SERVER_WRITE_LOGS and message_id:
+                    self._insert_audit(message_id=message_id, content=audit_logs)
+                flagged_response = "\n".join([i.flagged_response() for i in self.executor.input_pipes])
+                flagged = True
+                response = jsonify({"detail": "Flagged", "flagged": flagged, "transformed_content": flagged_response, "audit_logs": audit_logs})
                 return make_response(response, 200)
             except Exception as e:
                 logger.error("An error occurred: %s", str(e), exc_info=True)
@@ -410,7 +423,19 @@ class SecuRAGServer:
                 if write_log and self.SECURAG_SERVER_WRITE_LOGS and message_id:
                     self._insert_audit(message_id=message_id, content=audit_logs)
 
-                response = jsonify({"detail": "Success", "transformed_content": transformed_content, "audit_logs": audit_logs})
+                flagged = any(i.get_flag() for i in self.executor.output_pipes)
+                flagged_response = "\n".join([i.flagged_response() for i in self.executor.output_pipes])
+
+                response = jsonify({"detail": "Success", "flagged": flagged, "transformed_content": transformed_content, "audit_logs": audit_logs})
+                return make_response(response, 200)
+            except FlaggedOutputError:
+                audit_logs = self.executor.get_logs()
+                if write_log and self.SECURAG_SERVER_WRITE_LOGS and message_id:
+                    self._insert_audit(message_id=message_id, content=audit_logs)
+
+                flagged_response = "\n".join([i.flagged_response() for i in self.executor.output_pipes])
+                flagged = True
+                response = jsonify({"detail": "Flagged", "flagged": flagged, "transformed_content": flagged_response, "audit_logs": audit_logs})
                 return make_response(response, 200)
             except Exception as e:
                 logger.error("An error occurred: %s", str(e), exc_info=True)
@@ -425,6 +450,7 @@ class SecuRAGServer:
                 response = jsonify({"detail": "Success", "ai_response": ai_response})
                 return make_response(response, 200)
             except Exception as e:
+                print(f"Error occurred in /api/ai-response: {str(e)}", traceback.format_exc())
                 logger.error("An error occurred: %s", str(e), exc_info=True)
                 response = jsonify({"detail": "An error occurred"})
                 return make_response(response, 500)
@@ -488,10 +514,10 @@ class SecuRAGServer:
                 return make_response(jsonify({"error": str(e)}), 500)
 
     # -------------------- RUN --------------------
-    def run(self, host='0.0.0.0', port=5000):
-        self.app.run(host=host, port=port)
+    def run(self, host='0.0.0.0', port=5000, debug=False):
+        self.app.run(host=host, port=port, debug=debug)
 
 
 if __name__ == '__main__':
     app = SecuRAGServer("SecuRAG-Flask", executor=executor, ai_response=ai_response)
-    app.run()
+    app.run(debug=False)

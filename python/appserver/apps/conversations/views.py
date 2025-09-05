@@ -41,7 +41,8 @@ def simulate_input_transformation(user_input, message_id, write_log):
         return None
     data = response.json()
     transformed_content = data.get("transformed_content")
-    return transformed_content
+    flagged = data.get("flagged", False)
+    return transformed_content, flagged
 
 def simulate_output_transformation(ai_response, message_id, write_log):
     json_body = {
@@ -53,7 +54,10 @@ def simulate_output_transformation(ai_response, message_id, write_log):
     response = requests.post(url, json=json_body)
     if response.status_code != 200:
         return None
-    return response.json().get("transformed_content")
+    data = response.json()
+    transformed_content = data.get("transformed_content")
+    flagged = data.get("flagged", False)
+    return transformed_content, flagged
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -73,21 +77,26 @@ def start_conversation(request):
         order=last_order + 1,
     )
 
-    input_t = simulate_input_transformation(user_msg.content, user_msg.id, settings.RECORD_AUDIT_LOGS)
+    input_t, input_flagged = simulate_input_transformation(user_msg.content, user_msg.id, settings.RECORD_AUDIT_LOGS)
+    print(input_t, input_flagged)
     if input_t is None:
         return Response({"detail": "Input transformation failed."}, status=status.HTTP_400_BAD_REQUEST)
-    
+
     Message.objects.filter(id=user_msg.id).update(transformed_content=input_t)
     Conversation.objects.filter(id=conversation.id).update(updated_at=timezone.now())
 
-    # Atomic 2: generate AI + ASSISTANT message
-    ai_raw = simulate_ai_response({"prompt": input_t})
-    if ai_raw is None:
-        return Response({"detail": "AI response generation failed."}, status=status.HTTP_400_BAD_REQUEST)
+    if input_flagged:
+        ai_raw = "Not Generated due to flagged Input"
+        ai_out = input_t
+    else:
+        # Atomic 2: generate AI + ASSISTANT message
+        ai_raw = simulate_ai_response({"prompt": input_t})
+        if ai_raw is None:
+            return Response({"detail": "AI response generation failed."}, status=status.HTTP_400_BAD_REQUEST)
 
-    ai_out = simulate_output_transformation(ai_raw, user_msg.id, settings.RECORD_AUDIT_LOGS)
-    if ai_out is None:
-        return Response({"detail": "AI output transformation failed."}, status=status.HTTP_400_BAD_REQUEST)
+        ai_out, output_flagged = simulate_output_transformation(ai_raw, user_msg.id, settings.RECORD_AUDIT_LOGS)
+        if ai_out is None:
+            return Response({"detail": "AI output transformation failed."}, status=status.HTTP_400_BAD_REQUEST)
 
     assistant_msg = Message.objects.create(
         conversation=conversation,
@@ -129,21 +138,25 @@ def continue_conversation(request, conversation_id):
         order=last_order + 1,
     )
 
-    input_t = simulate_input_transformation(user_msg.content, user_msg.id, settings.RECORD_AUDIT_LOGS)
+    input_t, input_flagged = simulate_input_transformation(user_msg.content, user_msg.id, settings.RECORD_AUDIT_LOGS)
     if input_t is None:
         return Response({"detail": "Input transformation failed."}, status=status.HTTP_400_BAD_REQUEST)
 
     Message.objects.filter(id=user_msg.id).update(transformed_content=input_t)
     Conversation.objects.filter(id=conversation.id).update(updated_at=timezone.now())
 
-    # Atomic 2: generate AI + ASSISTANT message
-    ai_raw = simulate_ai_response({ "prompt": input_t })
-    if ai_raw is None:
-        return Response({"detail": "AI response generation failed."}, status=status.HTTP_400_BAD_REQUEST)
+    if input_flagged:
+        ai_raw = "Not Generated due to flagged Input"
+        ai_out = input_t
+    else:
+        # Atomic 2: generate AI + ASSISTANT message
+        ai_raw = simulate_ai_response({"prompt": input_t})
+        if ai_raw is None:
+            return Response({"detail": "AI response generation failed."}, status=status.HTTP_400_BAD_REQUEST)
 
-    ai_out = simulate_output_transformation(ai_raw, user_msg.id, settings.RECORD_AUDIT_LOGS)
-    if ai_out is None:
-        return Response({"detail": "AI output transformation failed."}, status=status.HTTP_400_BAD_REQUEST)
+        ai_out, output_flagged = simulate_output_transformation(ai_raw, user_msg.id, settings.RECORD_AUDIT_LOGS)
+        if ai_out is None:
+            return Response({"detail": "AI output transformation failed."}, status=status.HTTP_400_BAD_REQUEST)
 
     assistant_msg = Message.objects.create(
         conversation=conversation,

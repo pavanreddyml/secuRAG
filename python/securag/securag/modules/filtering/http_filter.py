@@ -22,10 +22,11 @@ class HTTPRequestFilter(Filter):
         flagging_thresh: Optional[float] = None,
         inverted_thresh: bool = False,
         default_flag_on_fail: bool = True,
+        default_flagged_response: str = "The query was flagged.",
         description: str = "",
         audit: bool = False,
     ) -> None:
-        super().__init__(name=name, description=description, audit=audit)
+        super().__init__(name=name, description=description, audit=audit, default_flagged_response=default_flagged_response)
         self.url = url
         self.method = method.upper()
         self.headers = self._validate_headers(headers)
@@ -36,6 +37,8 @@ class HTTPRequestFilter(Filter):
         self.addn_fields = addn_fields or {}
         if not isinstance(self.addn_fields, dict):
             raise TypeError("addn_fields must be a dict")
+        if self.query_field in self.addn_fields:
+            self.addn_fields.pop(self.query_field)
 
         # Keep raw strings (optional)
         self.scoring_field = scoring_field

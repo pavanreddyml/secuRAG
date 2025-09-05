@@ -1,0 +1,22 @@
+version: 1
+route: /agents/report-bot
+guardrails:
+  input:
+    block_encodings: [base64, hex]
+    jailbreak_detection: strict
+  tools:
+    - name: "fs.write"
+      allow: false
+    - name: "sql.query"
+      allow: true
+      scope: ["db:analytics.readonly"]
+      rate_limit: "60/m"
+  data:
+    retrieval_allow: ["kb://reports/*"]
+    retrieval_deny: ["kb://hr/*"]
+  output:
+    redact:
+      - type: PII
+      - pattern: "(?i)api[_-]?key\\s*[:=]\\s*\\w+"
+    max_toxicity: "low"
+mode: enforce

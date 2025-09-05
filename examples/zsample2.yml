@@ -1,0 +1,20 @@
+architecture: functional           # [pipes, functional]
+
+guardrails:
+  input:
+    filter: 
+      - type: "encodings"
+        formats: ["hex", "base64"]
+      
+    sanitize:
+      - type: PII
+        formats: ["credit_card", "ssn"]
+      - type: profanity
+        severity: low
+
+  output:
+    sanitize:
+      - type: PII
+        formats: ["credit_card", "ssn"]
+      - type: profanity
+        severity: low

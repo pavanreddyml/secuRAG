@@ -2,14 +2,21 @@ import textwrap
 from securag import pipe
 from securag.pipe import Pipe
 
+import os
+import shutil
+import json
+import yaml
+
 from copy import deepcopy
 
-from securag.exceptions import FlaggedInputError, FlaggedOutputError
+from securag.exceptions import FlaggedInputError, FlaggedOutputError, SerializationError
+
+from typing import Optional, List
 
 class SecuRAGExecutor:
     def __init__(self, 
-                 input_pipes: list[Pipe] = None, 
-                 output_pipes: list[Pipe] = None, 
+                 input_pipes: Optional[List[Pipe]] = None, 
+                 output_pipes: Optional[List[Pipe]] = None, 
                  raise_on_flag=True):
         self.input_pipes = input_pipes or []
         self.output_pipes = output_pipes or []
@@ -49,6 +56,10 @@ class SecuRAGExecutor:
     
     def get_logs(self):
         return self.logs
+    
+    def reset_pipes(self):
+        for pipe in self.input_pipes + self.output_pipes:
+            pipe.reset()
 
     def print_logs(self):
         final_logs = ""
@@ -119,9 +130,39 @@ class SecuRAGExecutor:
 
         print(final_logs)
 
-
     def _initialize_pipes(self):
+        pipe_set = set()
         for i, pipe in enumerate(self.input_pipes + self.output_pipes):
+            if pipe.name in pipe_set:
+                raise ValueError(f"Duplicate pipe name found: {pipe.name}. Pipe names must be unique.")
+            pipe_set.add(pipe.name)
             pipe.assign_id(i+1)
             pipe.initialize_modules()
             pipe.reset()
+
+    def save(self, path: str, raise_on_warnings: bool = True):
+        if not os.path.exists(path):
+            raise SerializationError(f"Path {path} does not exist.")
+        
+        path = os.path.join(path, "executor")
+        if not os.path.exists(path):
+            shutil.rmtree(path, ignore_errors=True)
+        os.makedirs(path, exist_ok=True)
+
+        pipes_path = os.path.join(path, "pipes")
+        if os.path.exists(pipes_path):
+            shutil.rmtree(pipes_path, ignore_errors=True)
+        os.makedirs(pipes_path, exist_ok=True)
+
+        self.reset_pipes()
+
+        json_val = {
+            "architecture": "pipes",
+            "guardrails": {
+                "input": [pipe.to_json(path=pipes_path, raise_on_warnings=raise_on_warnings) for pipe in self.input_pipes],
+                "output": [pipe.to_json(path=pipes_path, raise_on_warnings=raise_on_warnings) for pipe in self.output_pipes],
+            }
+        }
+
+        json.dump(json_val, open(os.path.join(path, "executor.json"), 'w'), indent=4)
+        yaml.dump(json_val, open(os.path.join(path, "executor.yaml"), 'w'), indent=4)

@@ -1,14 +1,22 @@
 from abc import ABC, abstractmethod
 from functools import wraps
 
+import os
+import shutil
 from copy import deepcopy
 import time
 
+import re
+import json
+import pickle
 from securag.modules import Module
 import traceback
 from typing import Literal
 
 from datetime import datetime
+
+from securag.exceptions import SerializationError
+from securag.utils.serializer import SerializerUtils
 
 
 class Pipe(ABC):
@@ -17,13 +25,19 @@ class Pipe(ABC):
     def pipe_type(self):
         pass
 
+    @property
+    def pipe_attributes(self) -> set:
+        return set()
+
     def __init__(self,
                  name: str,
                  modules: list[Module],
                  description: str = "",
                  audit=False,
-                 flagging_strategy: Literal["any", "all", "manual"] = "any"
+                 flagging_strategy: Literal["any", "all", "manual"] = "any",
                  ):
+        if re.search(r'[<>:"/\\|?*\x00-\x1f]', name):
+            raise ValueError(f"Invalid Pipe name '{name}': Pipe name cannot contain <>:\"/\\|?* or control characters.")
         self.name = name
         self.modules = modules
         self.description = description
@@ -49,11 +63,11 @@ class Pipe(ABC):
     def _time_logger(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            start = time.time()
+            start = time.perf_counter()
             try:
                 return func(self, *args, **kwargs)
             finally:
-                self._exec_time = (time.time() - start) * 1000
+                self._exec_time = (time.perf_counter() - start) * 1000
                 self.log_audit({"execution_time": self._exec_time}, level="main")
         return wrapper
 
@@ -151,3 +165,45 @@ class Pipe(ABC):
             names.add(module.get_name())
             module.assign_id(i+1)
             module.reset()
+
+    def flagged_response(self):
+        if self.get_flag():
+            return "\n".join([module.flagged_response() for module in self.modules if module.get_flag()])
+        return ""
+    
+    def to_json(self, 
+                path: str,
+                raise_on_warnings: bool = True):
+        pipe_path = os.path.join(path, self.name)
+        if os.path.exists(pipe_path):
+            shutil.rmtree(pipe_path)
+        os.makedirs(pipe_path, exist_ok=True)
+
+        json_dict = {
+            "name": SerializerUtils.save_object(self.name, pipe_path, "name"),
+            "description": SerializerUtils.save_object(self.description, pipe_path, "description"),
+            "audit": SerializerUtils.save_object(self.audit, pipe_path, "audit"),
+            "flagging_strategy": SerializerUtils.save_object(self.flagging_strategy, pipe_path, "flagging_strategy"),
+            "pipe_type": SerializerUtils.save_object(self.pipe_type, pipe_path, "pipe_type"),
+            "_id": SerializerUtils.save_object(self._id, pipe_path, "_id"),
+            "self._audit_log": SerializerUtils.save_object(self._audit_log, pipe_path, "self._audit_log"),
+            "self._flag": SerializerUtils.save_object(self._flag, pipe_path, "self._flag"),
+            "self._exec_time": SerializerUtils.save_object(self._exec_time, pipe_path, "self._exec_time"),
+            "modules": [module.to_json(os.path.join(path, self.name), raise_on_warnings) for module in self.modules],
+        }
+
+        for attribute in self.pipe_attributes:
+            if not hasattr(self, attribute):
+                raise SerializationError(f"Failed to serialize Pipe: {self.__class__.__name__}.{self.name}.{attribute}. Field is missing.")
+
+            value = getattr(self, attribute)
+            try:
+                json_dict[attribute] = SerializerUtils.save_object(value, pipe_path, attribute)
+            except SerializationError as e:
+                raise SerializationError(f"Failed to serialize Pipe: {self.__class__.__name__}.{self.name}.{attribute}. Error: {str(e)}")
+        
+        return json_dict
+    
+
+    def __repr__(self):
+        return f"<Pipe name={self.name} id={self._id} type={self.pipe_type} modules={len(self.modules)} flag={self._flag}>"

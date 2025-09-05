@@ -1,20 +1,36 @@
 from abc import ABC, abstractmethod
+import os
+import shutil
 
+import warnings
+
+import re
 import time
 from functools import wraps
 import traceback
 from datetime import datetime
 from copy import deepcopy
 
+from securag.exceptions import SerializationError
+from securag.utils.serializer import SerializerUtils
 class Module(ABC):
+    @property
+    def module_attributes(self) -> set:
+        return set()
+
     def __init__(self, 
                  name, 
                  description="", 
-                 audit=False
+                 audit=False,
+                 default_flagged_response="The query was flagged."
                  ):
+        if re.search(r'[<>:"/\\|?*\x00-\x1f]', name):
+            raise ValueError(f"Invalid Pipe name '{name}': Pipe name cannot contain <>:\"/\\|?* or control characters.")
         self.name = name
+
         self.description = description
         self.audit = audit
+        self.default_flagged_response = default_flagged_response
 
         self._id = None
         self._audit_log = {
@@ -35,11 +51,11 @@ class Module(ABC):
     def _time_logger(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            start = time.time()
+            start = time.perf_counter()
             try:
                 return func(self, *args, **kwargs)
             finally:
-                self._exec_time = (time.time() - start) * 1000
+                self._exec_time = (time.perf_counter() - start) * 1000
                 self.log_audit({"execution_time": self._exec_time}, level="main")
         return wrapper
     
@@ -112,3 +128,45 @@ class Module(ABC):
         self._flag = False
         self._score = None
         self._exec_time = None
+
+    def flagged_response(self):
+        if self.get_flag():
+            return self.default_flagged_response
+        return ""
+    
+    def to_json(self, 
+                path: str,
+                raise_on_warnings: bool = True):
+        module_path = os.path.join(path, self.name)
+        if os.path.exists(module_path):
+            shutil.rmtree(module_path)
+        os.makedirs(module_path, exist_ok=True)
+
+        if (self.module_attributes is None or len(self.module_attributes) == 0) and raise_on_warnings:
+            raise SerializationError(f"Failed to serialize object: {self.__class__.__name__}. module_attributes is empty. If this is intended and attributes are empty, set raise_on_warnings to False.")
+        else:
+            warnings.warn(f"Warning: module_attributes is empty for {self.__class__.__name__}. If this is intended and attributes are empty, set raise_on_warnings to False.", UserWarning)
+
+        json_dict = {
+            "name": SerializerUtils.save_object(self.name, module_path, "name"),
+            "description": SerializerUtils.save_object(self.description, module_path, "description"),
+            "audit": SerializerUtils.save_object(self.audit, module_path, "audit"),
+            "default_flagged_response": SerializerUtils.save_object(self.default_flagged_response, module_path, "default_flagged_response"),
+            "self._id": SerializerUtils.save_object(self._id, module_path, "self._id"),
+            "self._audit_log": SerializerUtils.save_object(self._audit_log, module_path, "self._audit_log"),
+            "self._flag": SerializerUtils.save_object(self._flag, module_path, "self._flag"),
+            "self._exec_time": SerializerUtils.save_object(self._exec_time, module_path, "self._exec_time"),
+            "self._score": SerializerUtils.save_object(self._score, module_path, "self._score"),
+        }
+
+        for attribute in self.module_attributes:
+            if not hasattr(self, attribute):
+                raise SerializationError(f"Failed to serialize Module: {self.__class__.__name__}.{self.name}.{attribute}. Field is missing.")
+
+            value = getattr(self, attribute)
+            try:
+                json_dict[attribute] = SerializerUtils.save_object(value, module_path, attribute)
+            except SerializationError as e:
+                raise SerializationError(f"Failed to serialize Module: {self.__class__.__name__}.{self.name}.{attribute}. Error: {str(e)}")
+        
+        return json_dict

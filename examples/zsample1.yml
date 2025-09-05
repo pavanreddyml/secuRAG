@@ -1,0 +1,20 @@
+architecture: pipes           # [pipes, functional]
+
+guardrails:
+  input:
+    - name: "user_input"
+      type: "thread"
+      modules: 
+        - name: "keyword_filter"
+          type: "keyword_filter"
+        - name: "regex_filter"
+          type: "regex_filter"
+
+  output:
+    - name: "filtered_output"
+      type: "thread"
+      modules:
+        - name: "keyword_filter"
+          type: "keyword_filter"
+        - name: "regex_filter"
+          type: "regex_filter"

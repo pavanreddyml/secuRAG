@@ -63,4 +63,4 @@ class ThreadPipe(Pipe):
                     if not f.done():
                         f.cancel()
 
-        return outputs
+        return input_data

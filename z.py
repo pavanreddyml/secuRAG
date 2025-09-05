@@ -8,8 +8,8 @@ from securag.executor.executor import SecuRAGExecutor
 
 def create_executor() -> SecuRAGExecutor:
     # SAMPLE EXECUTOR CREATION CODE. MODIFY AS NEEDED.
-    keywords = ["sensitive", "confidential", "top secret"]
-    keywords2 = ["abcd"]
+    keywords = {1: ["sensitive", "confidential", "top secret"]}
+    keywords2 = {1: ["abcd"]}
 
     filter_module = KeywordFilter("Filtering Module", keywords, audit=True)
     filter_module2 = KeywordFilter("Filtering Module 2", keywords2, audit=True)
@@ -58,3 +58,4 @@ executor = create_executor()
 if not isinstance(executor, SecuRAGExecutor):
     raise ValueError("The 'create_executor' function must return a SecuRAGExecutor instance.")
 
+executor.save(r"C:\Users\Pavan Reddy\Desktop\secuRAG", raise_on_warnings=False)
